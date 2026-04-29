@@ -1,6 +1,7 @@
 #!/bin/bash
 
 CONFIG="/usr/local/etc/xray/config.json"
+PUBLIC_KEY_FILE="/etc/xray_public.key"
 
 # ========== 工具 ==========
 random_port() {
@@ -64,7 +65,7 @@ install_reality() {
     PRIVATE=$(echo "$KEYS" | grep Private | awk '{print $3}')
     PUBLIC=$(echo "$KEYS" | grep Public | awk '{print $3}')
 
-    echo "$PUBLIC" > /etc/xray_public.key
+    echo "$PUBLIC" > $PUBLIC_KEY_FILE
 
     cat > $CONFIG <<EOF
 {
@@ -98,7 +99,7 @@ EOF
     systemctl enable xray
 
     IP=$(curl -s ifconfig.me)
-    PBK=$(cat /etc/xray_public.key)
+    PBK=$(cat $PUBLIC_KEY_FILE)
 
     LINK="vless://$UUID@$IP:$PORT?encryption=none&security=reality&sni=$SNI&fp=chrome&pbk=$PBK&sid=$SHORTID&type=tcp&flow=xtls-rprx-vision#Reality"
 
@@ -107,19 +108,13 @@ EOF
     echo "        Reality 节点"
     echo "=============================="
     echo ""
-    echo "地址: $IP"
-    echo "端口: $PORT"
+    echo "IP: $IP"
+    echo "PORT: $PORT"
     echo "SNI: $SNI"
     echo ""
     echo "===== 可复制链接 ====="
     echo "$LINK"
     echo ""
-    echo "===== 二维码（扫码导入） ====="
-    qrencode -t ANSIUTF8 "$LINK" 2>/dev/null
-    echo ""
-
-    echo "$LINK" | xclip -selection clipboard 2>/dev/null
-    echo "（如支持剪贴板：已自动复制）"
 }
 
 # ========== VMESS ==========
@@ -149,7 +144,7 @@ EOF
     systemctl restart xray
     IP=$(curl -s ifconfig.me)
 
-    echo "VMESS链接:"
+    echo "VMESS:"
     echo "ws://$IP:$PORT/ws"
     echo "UUID: $UUID"
 }
@@ -189,9 +184,45 @@ enable_bbr() {
         echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
     }
     sysctl -p
+    echo "BBR OK"
 }
 
-# ========== 菜单 ==========
+# ========== 查看链接 ==========
+show_link() {
+
+    IP=$(curl -s ifconfig.me)
+
+    UUID=$(grep '"id"' $CONFIG | head -n1 | awk -F '"' '{print $4}')
+    PORT=$(grep '"port"' $CONFIG | head -n1 | awk '{print $2}' | tr -d ',')
+    SNI=$(grep 'serverNames' -A1 $CONFIG | tail -n1 | awk -F '"' '{print $2}')
+    PBK=$(cat $PUBLIC_KEY_FILE 2>/dev/null)
+    SHORTID=$(grep '"shortIds"' -A1 $CONFIG | tail -n1 | awk -F '"' '{print $2}')
+
+    LINK="vless://$UUID@$IP:$PORT?encryption=none&security=reality&sni=$SNI&fp=chrome&pbk=$PBK&sid=$SHORTID&type=tcp&flow=xtls-rprx-vision#Reality"
+
+    echo ""
+    echo "=============================="
+    echo "        可用链接"
+    echo "=============================="
+    echo ""
+    echo "$LINK"
+    echo ""
+}
+
+# ========== 删除节点（=卸载） ==========
+delete_node() {
+    echo "⚠️ 将删除当前节点配置"
+    read -p "确认？(y/n): " c
+    [ "$c" != "y" ] && return
+
+    systemctl stop xray
+    rm -f $CONFIG
+    rm -f $PUBLIC_KEY_FILE
+
+    echo "已删除节点"
+}
+
+# ========== 主菜单 ==========
 while true; do
 clear
 echo "=============================="
@@ -201,9 +232,10 @@ echo "1) VLESS + Reality"
 echo "2) VMESS + WS"
 echo "3) Shadowsocks"
 echo "4) BBR"
-echo "7) 卸载"
-echo "8) 查看链接（增强版）"
-echo "9) 退出"
+echo "7) 卸载脚本"
+echo "8) 查看链接"
+echo "9) 删除节点"
+echo "0) 退出"
 echo "=============================="
 
 read -p "选择: " c
@@ -214,8 +246,9 @@ case $c in
 3) install_ss ;;
 4) enable_bbr ;;
 7) systemctl stop xray && rm -rf /usr/local/etc/xray ;;
-8) install_reality ;;
-9) exit ;;
+8) show_link ;;
+9) delete_node ;;
+0) exit ;;
 *) echo "无效" ;;
 esac
 
