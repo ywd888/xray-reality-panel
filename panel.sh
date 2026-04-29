@@ -37,8 +37,8 @@ select_sni() {
         3) SNI="www.microsoft.com" ;;
         4) SNI="www.amazon.com" ;;
         5) SNI="www.google.com" ;;
-        6) read -p "输入SNI: " SNI ;;
-        7) SNI="apps.apple.com" ;;
+        6) SNI="apps.apple.com" ;;
+        7) read -p "输入SNI: " SNI ;;
         *) SNI="www.cloudflare.com" ;;
     esac
 }
