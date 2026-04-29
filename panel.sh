@@ -1,6 +1,10 @@
 #!/bin/bash
 
 CONFIG="/usr/local/etc/xray/config.json"
+DATA_DIR="/etc/xray-panel"
+mkdir -p $DATA_DIR
+
+PUBLIC_KEY_FILE="$DATA_DIR/public.key"
 
 # ========== 工具 ==========
 random_port() {
@@ -13,7 +17,6 @@ select_port() {
     read -p "请选择: " p
     if [ "$p" = "1" ]; then
         PORT=$(random_port)
-        echo "随机端口: $PORT"
     else
         read -p "输入端口: " PORT
     fi
@@ -23,10 +26,10 @@ select_sni() {
     echo "SNI推荐："
     echo "1) www.cloudflare.com"
     echo "2) www.apple.com"
-    echo "3) www.microsoft.com"
-    echo "4) www.amazon.com"
-    echo "5) www.google.com"
-    echo "6) apps.apple.com"
+    echo "3) apps.apple.com"
+    echo "4) www.microsoft.com"
+    echo "5) www.amazon.com"
+    echo "6) www.google.com"
     echo "7) 自定义"
 
     read -p "选择SNI: " s
@@ -34,10 +37,10 @@ select_sni() {
     case $s in
         1) SNI="www.cloudflare.com" ;;
         2) SNI="www.apple.com" ;;
-        3) SNI="www.microsoft.com" ;;
-        4) SNI="www.amazon.com" ;;
-        5) SNI="www.google.com" ;;
-        6) SNI="apps.apple.com" ;;
+        3) SNI="apps.apple.com" ;;
+        4) SNI="www.microsoft.com" ;;
+        5) SNI="www.amazon.com" ;;
+        6) SNI="www.google.com" ;;
         7) read -p "输入SNI: " SNI ;;
         *) SNI="www.cloudflare.com" ;;
     esac
@@ -63,6 +66,8 @@ install_reality() {
     KEYS=$(xray x25519)
     PRIVATE=$(echo "$KEYS" | grep Private | awk '{print $3}')
     PUBLIC=$(echo "$KEYS" | grep Public | awk '{print $3}')
+
+    echo "$PUBLIC" > $PUBLIC_KEY_FILE
 
     cat > $CONFIG <<EOF
 {
@@ -96,15 +101,18 @@ EOF
     systemctl enable xray
 
     IP=$(curl -s ifconfig.me)
+    PUBLIC=$(cat $PUBLIC_KEY_FILE)
 
+    echo ""
     echo "===== Reality ====="
     echo "IP: $IP"
     echo "PORT: $PORT"
     echo "UUID: $UUID"
     echo "SNI: $SNI"
-    echo "PUBLIC KEY: $PUBLIC"
-    echo "LINK:"
+    echo ""
+    echo "===== 可用链接 ====="
     echo "vless://$UUID@$IP:$PORT?encryption=none&security=reality&sni=$SNI&fp=chrome&pbk=$PUBLIC&sid=$SHORTID&type=tcp&flow=xtls-rprx-vision#Reality"
+    echo ""
 }
 
 # ========== VMESS ==========
@@ -134,7 +142,8 @@ EOF
     systemctl restart xray
     IP=$(curl -s ifconfig.me)
 
-    echo "VMESS ws://$IP:$PORT/ws"
+    echo "VMESS链接:"
+    echo "ws://$IP:$PORT/ws"
     echo "UUID: $UUID"
 }
 
@@ -168,10 +177,35 @@ EOF
 
 # ========== BBR ==========
 enable_bbr() {
-    echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
-    echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    grep -q "bbr" /etc/sysctl.conf || {
+        echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+        echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
+    }
     sysctl -p
-    echo "BBR OK"
+}
+
+# ========== 查看链接（重点修复） ==========
+show_link() {
+
+    if [ ! -f "$CONFIG" ]; then
+        echo "未安装"
+        return
+    fi
+
+    IP=$(curl -s ifconfig.me)
+
+    UUID=$(grep '"id"' $CONFIG | head -n1 | awk -F '"' '{print $4}')
+    PORT=$(grep '"port"' $CONFIG | head -n1 | awk '{print $2}' | tr -d ',')
+    SNI=$(grep 'serverNames' -A1 $CONFIG | tail -n1 | awk -F '"' '{print $2}')
+    SHORTID=$(grep '"shortIds"' -A1 $CONFIG | tail -n1 | awk -F '"' '{print $2}')
+
+    PUBLIC=$(cat $PUBLIC_KEY_FILE 2>/dev/null)
+
+    echo ""
+    echo "===== 可复制链接 ====="
+    echo ""
+    echo "vless://$UUID@$IP:$PORT?encryption=none&security=reality&sni=$SNI&fp=chrome&pbk=$PUBLIC&sid=$SHORTID&type=tcp&flow=xtls-rprx-vision#Reality"
+    echo ""
 }
 
 # ========== 主菜单 ==========
@@ -180,14 +214,14 @@ clear
 echo "=============================="
 echo "  VLESS / VMESS / SS 面板"
 echo "=============================="
-echo "1) VLESS + Reality（直连）"
-echo "2) VMESS + WS（软路由）"
+echo "1) VLESS + Reality"
+echo "2) VMESS + WS"
 echo "3) Shadowsocks"
-echo "4) 启用 BBR"
-echo "5) 修改端口（未做持久化）"
-echo "6) 修改用户名/密码（未实现）"
+echo "4) BBR"
+echo "5) 修改端口（未实现）"
+echo "6) 修改用户名（未实现）"
 echo "7) 卸载"
-echo "8) 查看链接（基础）"
+echo "8) 查看链接（已修复）"
 echo "9) 退出"
 echo "=============================="
 
@@ -199,7 +233,7 @@ case $c in
 3) install_ss ;;
 4) enable_bbr ;;
 7) systemctl stop xray && rm -rf /usr/local/etc/xray ;;
-8) cat $CONFIG ;;
+8) show_link ;;
 9) exit ;;
 *) echo "无效" ;;
 esac
